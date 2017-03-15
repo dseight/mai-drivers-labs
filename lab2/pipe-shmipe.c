@@ -146,9 +146,6 @@ pipe_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 	size_t to_copy;
 	int ret;
 
-	if (count >= buf_size)
-		count = buf_size - 1;
-
 	ret = wait_event_interruptible(wait_queue,
 		CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size) > 0);
 
@@ -157,7 +154,6 @@ pipe_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 
 	count = CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size);
 
-	/* use min here ! */
 	avail = CIRC_CNT_TO_END(userp->buf_head, userp->buf_tail, buf_size);
 	to_copy = min(count, avail);
 
