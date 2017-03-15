@@ -149,7 +149,7 @@ pipe_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 	ret = wait_event_interruptible(wait_queue,
 		CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size) > 0);
 
-	if (ret != 0)
+	if (ret)
 		return -ERESTARTSYS;
 
 	count = CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size);
@@ -158,9 +158,12 @@ pipe_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 	to_copy = min(count, avail);
 
 	/* Read first part */
-	copy_to_user(buf, userp->buf + userp->buf_tail, to_copy);
+	if (copy_to_user(buf, userp->buf + userp->buf_tail, to_copy))
+		return -EFAULT;
+
 	/* Read second part */
-	copy_to_user(buf + to_copy, userp->buf, count - to_copy);
+	if (copy_to_user(buf + to_copy, userp->buf, count - to_copy))
+		return -EFAULT;
 
 	userp->buf_tail = (userp->buf_tail + count) & (buf_size - 1);
 
@@ -183,16 +186,19 @@ pipe_write(struct file *file, const char __user *buf, size_t count, loff_t *offp
 	ret = wait_event_interruptible(wait_queue,
 		CIRC_SPACE(userp->buf_head, userp->buf_tail, buf_size) >= count);
 
-	if (ret != 0)
+	if (ret)
 		return -ERESTARTSYS;
 
 	avail = CIRC_SPACE_TO_END(userp->buf_head, userp->buf_tail, buf_size);
 	to_copy = min(count, avail);
 
 	/* Write first part */
-	copy_from_user(userp->buf + userp->buf_head, buf, to_copy);
+	if (copy_from_user(userp->buf + userp->buf_head, buf, to_copy))
+		return -EFAULT;
+
 	/* Write second part */
-	copy_from_user(userp->buf, buf + to_copy, count - to_copy);
+	if (copy_from_user(userp->buf, buf + to_copy, count - to_copy))
+		return -EFAULT;
 
 	userp->buf_head = (userp->buf_head + count) & (buf_size - 1);
 
