@@ -67,7 +67,6 @@ static int pipe_open(struct inode *inode, struct file *file)
 
 	if (uid_eq(current_uid(), GLOBAL_ROOT_UID)) {
 		file->f_op = &fops_root;
-		pr_warn(KBUILD_MODNAME ": file opened by root!\n");
 		return 0;
 	}
 
@@ -79,9 +78,6 @@ static int pipe_open(struct inode *inode, struct file *file)
 		if (uid_eq(current_uid(), userp->uid)) {
 			userp->count++;
 			file->private_data = userp;
-			pr_info(KBUILD_MODNAME
-				": uid %d count increased (%d now)\n",
-				__kuid_val(current_uid()), userp->count);
 			return 0;
 		}
 	}
@@ -103,7 +99,6 @@ static int pipe_open(struct inode *inode, struct file *file)
 	userp->count = 1;
 
 	list_add(&userp->head, &user_list);
-	pr_info(KBUILD_MODNAME ": uid %d added\n", __kuid_val(current_uid()));
 
 	file->private_data = userp;
 
@@ -117,8 +112,6 @@ static int pipe_release(struct inode *inode, struct file *file)
 	if (userp->count > 1
 		|| CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size) > 0) {
 		userp->count--;
-		pr_info(KBUILD_MODNAME ": uid %d count decreased (%d now)\n",
-			__kuid_val(current_uid()), userp->count);
 		return 0;
 	}
 
@@ -126,9 +119,6 @@ static int pipe_release(struct inode *inode, struct file *file)
 
 	kfree(userp->buf);
 	kfree(userp);
-
-	pr_info(KBUILD_MODNAME ": uid %d removed\n",
-		__kuid_val(current_uid()));
 
 	return 0;
 }
@@ -237,8 +227,6 @@ static int __init pipe_init(void)
 		return major;
 	}
 
-	pr_info(KBUILD_MODNAME ": loaded\n");
-
 	return 0;
 }
 
@@ -253,8 +241,6 @@ static void __exit pipe_exit(void)
 	}
 
 	unregister_chrdev(major, "pipe-shmipe");
-
-	pr_info(KBUILD_MODNAME ": removed\n");
 }
 
 module_init(pipe_init);
