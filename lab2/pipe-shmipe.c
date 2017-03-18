@@ -22,7 +22,8 @@ static int pipe_open(struct inode *, struct file *);
 static int pipe_release(struct inode *, struct file *);
 
 static ssize_t pipe_read_root(struct file *, char __user *, size_t, loff_t *);
-static ssize_t pipe_write_root(struct file *, const char __user *, size_t, loff_t *);
+static ssize_t
+pipe_write_root(struct file *, const char __user *, size_t, loff_t *);
 static int pipe_release_root(struct inode *, struct file *);
 
 static const struct file_operations fops = {
@@ -62,7 +63,7 @@ static DECLARE_WAIT_QUEUE_HEAD(wait_queue);
 
 static int pipe_open(struct inode *inode, struct file *file)
 {
-	struct pipe_user *userp;
+	struct pipe_user *usrp;
 	char *buf;
 
 	if (uid_eq(current_uid(), GLOBAL_ROOT_UID)) {
@@ -74,51 +75,51 @@ static int pipe_open(struct inode *inode, struct file *file)
 
 	/* Now let's find or create buffer for current user */
 
-	list_for_each_entry(userp, &user_list, head) {
-		if (uid_eq(current_uid(), userp->uid)) {
-			userp->count++;
-			file->private_data = userp;
+	list_for_each_entry(usrp, &user_list, head) {
+		if (uid_eq(current_uid(), usrp->uid)) {
+			usrp->count++;
+			file->private_data = usrp;
 			return 0;
 		}
 	}
 
-	userp = kmalloc(sizeof(*userp), GFP_KERNEL);
-	if (userp == NULL)
+	usrp = kmalloc(sizeof(*usrp), GFP_KERNEL);
+	if (usrp == NULL)
 		return -ENOMEM;
 
 	buf = kmalloc(buf_size, GFP_KERNEL);
 	if (buf == NULL) {
-		kfree(userp);
+		kfree(usrp);
 		return -ENOMEM;
 	}
 
-	userp->buf = buf;
-	userp->buf_head = 0;
-	userp->buf_tail = 0;
-	userp->uid = current_uid();
-	userp->count = 1;
+	usrp->buf = buf;
+	usrp->buf_head = 0;
+	usrp->buf_tail = 0;
+	usrp->uid = current_uid();
+	usrp->count = 1;
 
-	list_add(&userp->head, &user_list);
+	list_add(&usrp->head, &user_list);
 
-	file->private_data = userp;
+	file->private_data = usrp;
 
 	return 0;
 }
 
 static int pipe_release(struct inode *inode, struct file *file)
 {
-	struct pipe_user *userp = file->private_data;
+	struct pipe_user *usrp = file->private_data;
 
-	if (userp->count > 1
-		|| CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size) > 0) {
-		userp->count--;
+	if (usrp->count > 1
+		|| CIRC_CNT(usrp->buf_head, usrp->buf_tail, buf_size) > 0) {
+		usrp->count--;
 		return 0;
 	}
 
-	list_del(&userp->head);
+	list_del(&usrp->head);
 
-	kfree(userp->buf);
-	kfree(userp);
+	kfree(usrp->buf);
+	kfree(usrp);
 
 	return 0;
 }
@@ -131,31 +132,31 @@ static int pipe_release_root(struct inode *inode, struct file *file)
 static ssize_t
 pipe_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 {
-	struct pipe_user *userp = file->private_data;
+	struct pipe_user *usrp = file->private_data;
 	size_t avail;
 	size_t to_copy;
 	int ret;
 
 	ret = wait_event_interruptible(wait_queue,
-		CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size) > 0);
+		CIRC_CNT(usrp->buf_head, usrp->buf_tail, buf_size) > 0);
 
 	if (ret)
 		return -ERESTARTSYS;
 
-	count = CIRC_CNT(userp->buf_head, userp->buf_tail, buf_size);
+	count = CIRC_CNT(usrp->buf_head, usrp->buf_tail, buf_size);
 
-	avail = CIRC_CNT_TO_END(userp->buf_head, userp->buf_tail, buf_size);
+	avail = CIRC_CNT_TO_END(usrp->buf_head, usrp->buf_tail, buf_size);
 	to_copy = min(count, avail);
 
 	/* Read first part */
-	if (copy_to_user(buf, userp->buf + userp->buf_tail, to_copy))
+	if (copy_to_user(buf, usrp->buf + usrp->buf_tail, to_copy))
 		return -EFAULT;
 
 	/* Read second part */
-	if (copy_to_user(buf + to_copy, userp->buf, count - to_copy))
+	if (copy_to_user(buf + to_copy, usrp->buf, count - to_copy))
 		return -EFAULT;
 
-	userp->buf_tail = (userp->buf_tail + count) & (buf_size - 1);
+	usrp->buf_tail = (usrp->buf_tail + count) & (buf_size - 1);
 
 	wake_up(&wait_queue);
 
@@ -163,9 +164,10 @@ pipe_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 }
 
 static ssize_t
-pipe_write(struct file *file, const char __user *buf, size_t count, loff_t *offp)
+pipe_write(
+	struct file *file, const char __user *buf, size_t count, loff_t *offp)
 {
-	struct pipe_user *userp = file->private_data;
+	struct pipe_user *usrp = file->private_data;
 	size_t avail;
 	size_t to_copy;
 	int ret;
@@ -174,23 +176,23 @@ pipe_write(struct file *file, const char __user *buf, size_t count, loff_t *offp
 		count = buf_size - 1;
 
 	ret = wait_event_interruptible(wait_queue,
-		CIRC_SPACE(userp->buf_head, userp->buf_tail, buf_size) >= count);
+		CIRC_SPACE(usrp->buf_head, usrp->buf_tail, buf_size) >= count);
 
 	if (ret)
 		return -ERESTARTSYS;
 
-	avail = CIRC_SPACE_TO_END(userp->buf_head, userp->buf_tail, buf_size);
+	avail = CIRC_SPACE_TO_END(usrp->buf_head, usrp->buf_tail, buf_size);
 	to_copy = min(count, avail);
 
 	/* Write first part */
-	if (copy_from_user(userp->buf + userp->buf_head, buf, to_copy))
+	if (copy_from_user(usrp->buf + usrp->buf_head, buf, to_copy))
 		return -EFAULT;
 
 	/* Write second part */
-	if (copy_from_user(userp->buf, buf + to_copy, count - to_copy))
+	if (copy_from_user(usrp->buf, buf + to_copy, count - to_copy))
 		return -EFAULT;
 
-	userp->buf_head = (userp->buf_head + count) & (buf_size - 1);
+	usrp->buf_head = (usrp->buf_head + count) & (buf_size - 1);
 
 	wake_up(&wait_queue);
 
@@ -206,7 +208,8 @@ pipe_read_root(struct file *file, char __user *buf, size_t count, loff_t *offp)
 }
 
 static ssize_t
-pipe_write_root(struct file *file, const char __user *buf, size_t count, loff_t *offp)
+pipe_write_root(
+	struct file *file, const char __user *buf, size_t count, loff_t *offp)
 {
 	pr_warn(KBUILD_MODNAME ": only mere mortals can write here\n");
 
@@ -232,12 +235,12 @@ static int __init pipe_init(void)
 
 static void __exit pipe_exit(void)
 {
-	struct pipe_user *userp;
+	struct pipe_user *usrp;
 	struct pipe_user *tmp;
 
-	list_for_each_entry_safe(userp, tmp, &user_list, head) {
-		kfree(userp->buf);
-		kfree(userp);
+	list_for_each_entry_safe(usrp, tmp, &user_list, head) {
+		kfree(usrp->buf);
+		kfree(usrp);
 	}
 
 	unregister_chrdev(major, "pipe-shmipe");
