@@ -1,3 +1,5 @@
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -202,7 +204,7 @@ pipe_write(
 static ssize_t
 pipe_read_root(struct file *file, char __user *buf, size_t count, loff_t *offp)
 {
-	pr_warn(KBUILD_MODNAME ": only mere mortals can read from here\n");
+	pr_warn("only mere mortals can read from here\n");
 
 	return 0;
 }
@@ -211,7 +213,7 @@ static ssize_t
 pipe_write_root(
 	struct file *file, const char __user *buf, size_t count, loff_t *offp)
 {
-	pr_warn(KBUILD_MODNAME ": only mere mortals can write here\n");
+	pr_warn("only mere mortals can write here\n");
 
 	return -EFAULT;
 }
