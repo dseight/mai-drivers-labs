@@ -26,7 +26,6 @@ static int pipe_release(struct inode *, struct file *);
 static ssize_t pipe_read_root(struct file *, char __user *, size_t, loff_t *);
 static ssize_t
 pipe_write_root(struct file *, const char __user *, size_t, loff_t *);
-static int pipe_release_root(struct inode *, struct file *);
 
 static const struct file_operations fops = {
 	.owner = THIS_MODULE,
@@ -40,7 +39,6 @@ static const struct file_operations fops_root = {
 	.owner = THIS_MODULE,
 	.read = pipe_read_root,
 	.write = pipe_write_root,
-	.release = pipe_release_root
 };
 
 static int major;
@@ -123,11 +121,6 @@ static int pipe_release(struct inode *inode, struct file *file)
 	kfree(usrp->buf);
 	kfree(usrp);
 
-	return 0;
-}
-
-static int pipe_release_root(struct inode *inode, struct file *file)
-{
 	return 0;
 }
 
