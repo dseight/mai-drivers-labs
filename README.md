@@ -23,7 +23,7 @@ LAB WORK 3
 
 Character device driver that displays MAC address of some *specific* installed
 network card. With some network cards this may be difficult, thus we may display
-something different.
+something different. See details in [driver code](lab3/show_mac/main.c).
 
 ### Part B
 
