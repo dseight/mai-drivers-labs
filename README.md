@@ -31,7 +31,7 @@ Implement userspace workqueue.
 
 ### Part C
 
-Attach interrupt handler to the mouse (touchpad) and display interrupt count
+Attach interrupt handler to the ~mouse~ keyboard and display interrupt count
 in character device.
 
 
