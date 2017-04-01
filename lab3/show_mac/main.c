@@ -6,9 +6,13 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/device.h>
+#include <linux/cdev.h>
+#include <linux/err.h>
 #include <linux/pci.h>
 #include <linux/fs.h>
-#include <linux/spinlock.h>
+#include <linux/mutex.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
@@ -30,6 +34,7 @@ static void e1000_remove(struct pci_dev *);
 static int e1000_open(struct inode *, struct file *);
 static ssize_t e1000_read(struct file *, char __user *, size_t, loff_t *);
 static int e1000_read_mac(u8 __iomem *, char *);
+static char *e1000_devnode(struct device *, umode_t *);
 
 static const struct file_operations e1000_fops = {
 	.owner		= THIS_MODULE,
@@ -48,11 +53,13 @@ static struct pci_driver e1000_driver = {
 #define EMPTY_MAC "00:00:00:00:00:00"
 #define MAC_ADDRESS_SIZE 6
 
-static char *empty_mac = EMPTY_MAC;
-static char *macs[MAX_DEVICES];
-static int mac_index;
-static spinlock_t macs_lock;
-static int major;
+static int e1000_major;
+static struct cdev e1000_cdev;
+static struct class *e1000_class;
+static char *e1000_macs[MAX_DEVICES];
+
+static unsigned int e1000_count;
+DEFINE_MUTEX(e1000_count_mutex);
 
 
 static int e1000_read_mac(u8 __iomem *hw_addr, char *mac)
@@ -81,6 +88,8 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	int err, bars;
 	char *mac;
+	dev_t *dev_id;
+	struct device *dev;
 	u8 __iomem *hw_addr;
 
 	bars = pci_select_bars(pdev, IORESOURCE_MEM | IORESOURCE_IO);
@@ -105,38 +114,46 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (e1000_read_mac(hw_addr, mac))
 		return -EIO;
 
-	spin_lock(&macs_lock);
-
-	if (mac_index + 1 > MAX_DEVICES) {
-		spin_unlock(&macs_lock);
+	dev_id = devm_kmalloc(&pdev->dev, sizeof(*dev_id), GFP_KERNEL);
+	if (!mac)
 		return -ENOMEM;
+
+	mutex_lock(&e1000_count_mutex);
+
+	e1000_macs[e1000_count] = mac;
+
+	*dev_id = MKDEV(e1000_major, e1000_count);
+	dev = device_create(e1000_class, &pdev->dev, *dev_id, NULL,
+		"mac%u", e1000_count);
+	if (IS_ERR(dev)) {
+		mutex_unlock(&e1000_count_mutex);
+		return PTR_ERR(dev);
 	}
-	mac_index++;
-	macs[mac_index] = mac;
 
-	spin_unlock(&macs_lock);
+	e1000_count++;
 
-	pci_set_drvdata(pdev, &macs[mac_index]);
+	mutex_unlock(&e1000_count_mutex);
+
+	pci_set_drvdata(pdev, dev_id);
 
 	return 0;
 }
 
 static void e1000_remove(struct pci_dev *pdev)
 {
-	char **mac = pci_get_drvdata(pdev);
-	*mac = NULL;
+	dev_t *dev_id = pci_get_drvdata(pdev);
+
+	mutex_lock(&e1000_count_mutex);
+	device_destroy(e1000_class, *dev_id);
+	e1000_count--;
+	mutex_unlock(&e1000_count_mutex);
 }
 
 static int e1000_open(struct inode *inode, struct file *file)
 {
 	int minor = iminor(inode);
 
-	/* Searching for device with specific minor */
-
-	if (minor >= MAX_DEVICES || macs[minor] == NULL)
-		file->private_data = empty_mac;
-	else
-		file->private_data = macs[minor];
+	file->private_data = e1000_macs[minor];
 
 	return 0;
 }
@@ -158,23 +175,63 @@ e1000_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 	return count;
 }
 
+static char *e1000_devnode(struct device *dev, umode_t *mode)
+{
+	if (mode)
+		*mode = 0444;
+
+	return NULL;
+}
+
 static int __init e1000_init(void)
 {
-	mac_index = -1;
-	major = register_chrdev(0, "e1000_show_mac", &e1000_fops);
+	int err;
+	dev_t dev_id;
 
-	if (major < 0) {
-		pr_err("failed to register major device number\n");
-		return major;
+	err = alloc_chrdev_region(&dev_id, 0, MAX_DEVICES, KBUILD_MODNAME);
+	if (err) {
+		pr_err("can't get major number\n");
+		goto error;
 	}
 
+	e1000_major = MAJOR(dev_id);
+
+	cdev_init(&e1000_cdev, &e1000_fops);
+	e1000_cdev.owner = THIS_MODULE;
+
+	err = cdev_add(&e1000_cdev, dev_id, MAX_DEVICES);
+	if (err) {
+		pr_err("can't add cdev\n");
+		goto cleanup_alloc_chrdev_region;
+	}
+
+	e1000_class = class_create(THIS_MODULE, "e1000_class");
+	if (IS_ERR(e1000_class)) {
+		pr_err("can't create class\n");
+		err = PTR_ERR(e1000_class);
+		goto cleanup_cdev_add;
+	}
+	e1000_class->devnode = e1000_devnode;
+
 	return pci_register_driver(&e1000_driver);
+
+
+cleanup_cdev_add:
+	cdev_del(&e1000_cdev);
+cleanup_alloc_chrdev_region:
+	unregister_chrdev_region(dev_id, MAX_DEVICES);
+error:
+	return err;
 }
 
 static void __exit e1000_exit(void)
 {
-	unregister_chrdev(major, "e1000_show_mac");
+	dev_t dev_id = MKDEV(e1000_major, 0);
+
 	pci_unregister_driver(&e1000_driver);
+	class_destroy(e1000_class);
+	cdev_del(&e1000_cdev);
+	unregister_chrdev_region(dev_id, MAX_DEVICES);
 }
 
 module_init(e1000_init);
