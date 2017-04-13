@@ -2,36 +2,21 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/serio.h>
 #include <linux/interrupt.h>
 #include <linux/printk.h>
 #include <linux/fs.h>
 #include <asm/string.h>
 #include <asm/uaccess.h>
 
+#define I8042_KBD_IRQ 1
+
 static int kbd_major;
 static unsigned int kbd_irq_count;
 
-static irqreturn_t kbd_interrupt(struct serio *serio, unsigned char data,
-				   unsigned int flags)
+static irqreturn_t kbd_interrupt(int irq, void *dev_id)
 {
 	kbd_irq_count++;
-	return IRQ_HANDLED;
-}
-
-static int kbd_connect(struct serio *serio, struct serio_driver *drv)
-{
-	int err = serio_open(serio, drv);
-
-	if (err)
-		return err;
-
-	return 0;
-}
-
-static void kbd_disconnect(struct serio *serio)
-{
-	serio_close(serio);
+	return IRQ_NONE;
 }
 
 static ssize_t
@@ -58,39 +43,6 @@ kbd_read(struct file *file, char __user *buf, size_t count, loff_t *offp)
 	return count;
 }
 
-static struct serio_device_id kbd_serio_ids[] = {
-	{
-		.type	= SERIO_8042,
-		.proto	= SERIO_ANY,
-		.id	= SERIO_ANY,
-		.extra	= SERIO_ANY,
-	},
-	{
-		.type	= SERIO_8042_XL,
-		.proto	= SERIO_ANY,
-		.id	= SERIO_ANY,
-		.extra	= SERIO_ANY,
-	},
-	{
-		.type	= SERIO_RS232,
-		.proto	= SERIO_PS2SER,
-		.id	= SERIO_ANY,
-		.extra	= SERIO_ANY,
-	},
-	{ }
-};
-MODULE_DEVICE_TABLE(serio, kbd_serio_ids);
-
-static struct serio_driver kbd_drv = {
-	.driver		= {
-		.name	= "kbd_irq",
-	},
-	.id_table	= kbd_serio_ids,
-	.interrupt	= kbd_interrupt,
-	.connect	= kbd_connect,
-	.disconnect	= kbd_disconnect
-};
-
 static const struct file_operations kbd_fops = {
 	.owner = THIS_MODULE,
 	.read = kbd_read,
@@ -98,19 +50,32 @@ static const struct file_operations kbd_fops = {
 
 static int __init kbd_init(void)
 {
-	kbd_major = register_chrdev(0, "kbd_irq", &kbd_fops);
-	if (kbd_major < 0) {
-		pr_err("failed to register major device number\n");
-		return kbd_major;
-	}
+	int ret;
 
-	return serio_register_driver(&kbd_drv);
+	ret = request_irq(I8042_KBD_IRQ, kbd_interrupt, IRQF_SHARED,
+			  "kbd_irq", &kbd_major);
+	if (ret)
+		goto err_request_irq;
+
+	ret = register_chrdev(0, "kbd_irq", &kbd_fops);
+	if (ret < 0)
+		goto err_register_chrdev;
+
+	kbd_major = ret;
+
+	return 0;
+
+err_register_chrdev:
+	pr_err("failed to register major device number\n");
+	free_irq(I8042_KBD_IRQ, &kbd_major);
+err_request_irq:
+	return ret;
 }
 
 static void __exit kbd_exit(void)
 {
+	free_irq(I8042_KBD_IRQ, &kbd_major);
 	unregister_chrdev(kbd_major, "kbd_irq");
-	serio_unregister_driver(&kbd_drv);
 }
 
 module_init(kbd_init);
