@@ -40,6 +40,7 @@ LAB WORK 4
 
 Implement character device driver for reading/writing data from/to EEPROM
 attached by I2C interface. Implement ioctl to get EEPROM size. If there is no
-any EEPROM attached by I2C on PC, implement virtual I2C EEPROM:
+any EEPROM attached by I2C on PC, implement virtual I2C EEPROM
+(or use `i2c-stub` instead):
 
 `[ chardev | i2c device driver ] <-> I2C Core <-> [ i2c adapter driver | file ]`
