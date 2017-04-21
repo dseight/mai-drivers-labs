@@ -1,0 +1,16 @@
+{
+	"folders":
+	[
+		{
+			"path": ".",
+			"folder_exclude_patterns": [".tmp_versions"],
+			"file_exclude_patterns": [
+				"*.cmd", "*.ko", "*.symvers", "modules.order",
+				"*.mod.c"
+			]
+		}
+	],
+	"settings": {
+		"tab_size": 8
+	}
+}
